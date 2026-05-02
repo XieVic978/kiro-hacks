@@ -314,7 +314,7 @@ export default function App() {
     <div className="min-h-screen bg-gray-100 px-4 py-10">
       {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-semibold text-gray-900 tracking-tight">Flight Decision AI</h1>
+        <h1 className="text-4xl font-semibold text-gray-900 tracking-tight">ConnectFlight</h1>
         <p className="mt-2 text-gray-500 text-base">
           Let AI help you find the perfect flight based on what matters most to you
         </p>
