@@ -121,8 +121,9 @@ function getMatchingContacts(layovers, contacts) {
   const matches = []
   for (const layover of layovers) {
     if (layover.layoverMinutes < MIN_MEETUP_MINUTES) continue
+    const haystack = `${layover.city} ${layover.airport}`.toLowerCase()
     const cityContacts = contacts.filter(c =>
-      c.city.toLowerCase() === layover.city.toLowerCase()
+      haystack.includes(c.city.toLowerCase())
     )
     if (cityContacts.length > 0) {
       matches.push({ layover, contacts: cityContacts })
@@ -171,7 +172,7 @@ function ConnectionInsight({ layovers, contacts }) {
               <p className="text-xs text-gray-400 mt-1">
                 {layover.layoverMinutes < MIN_MEETUP_MINUTES
                   ? `Only ${formatLayover(layover.layoverMinutes)} — too short for a meetup. Head straight to your gate.`
-                  : `${formatLayover(layover.layoverMinutes)} layover — no contacts in ${layover.city}.`}
+                  : `${formatLayover(layover.layoverMinutes)} layover — no contacts in this city.`}
               </p>
             )}
           </div>
@@ -181,7 +182,41 @@ function ConnectionInsight({ layovers, contacts }) {
   )
 }
 
-// ── Priorities / sort ─────────────────────────────────────────────────────────
+// ── API helpers ───────────────────────────────────────────────────────────────
+
+const API = 'http://localhost:5051'
+
+// Extract IATA code from strings like "San Francisco (SFO)"
+function extractCode(val) {
+  const m = val.match(/\(([A-Z]{3})\)/)
+  return m ? m[1] : val.trim()
+}
+
+// Map SerpAPI layover data → our layover shape
+function normalizeLayovers(rawLayovers = []) {
+  return rawLayovers.map(l => ({
+    city:           l.name ?? '',
+    airport:        l.name ? `${l.name} (${l.id ?? ''})` : (l.id ?? ''),
+    layoverMinutes: l.duration ?? 0,
+  }))
+}
+
+// Map a normalized backend flight → UI flight shape
+function toUiFlight(f, index) {
+  return {
+    id:                index,
+    airline:           f.airline ?? 'Unknown',
+    dep:               f.departure_time ?? '—',
+    arr:               f.arrival_time   ?? '—',
+    duration:          f.duration       ?? '—',
+    stops:             f.stops_text     ?? 'Non-stop',
+    price:             f.price          ?? 0,
+    disabilityFeatures: [],           // SerpAPI doesn't provide this
+    layovers:          normalizeLayovers(f.layovers ?? []),
+    result_type:       f.result_type   ?? 'other',
+  }
+}
+
 
 const PRIORITIES = [
   { key: 'cheapest', label: 'Cheapest', emoji: '💰' },
@@ -231,15 +266,37 @@ export default function App() {
     clear: handleClear,
   } = useSearch()
 
+  const [loading, setLoading] = useState(false)
+  const [apiError, setApiError] = useState(null)
+
   const canSearch = from.trim() && to.trim() && date && budget
 
-  function handleSearch() {
+  async function handleSearch() {
     if (!canSearch) return
-    let pool = MOCK_FLIGHTS.filter(f => f.price <= Number(budget))
-    if (!pool.length) pool = [...MOCK_FLIGHTS]
-    if (disabilityMode) pool = pool.filter(f => f.disabilityFeatures.length > 0)
-    if (!pool.length) pool = MOCK_FLIGHTS.filter(f => f.disabilityFeatures.length > 0)
-    setResults(sortFlights(pool, priority))
+    setLoading(true)
+    setApiError(null)
+    setResults(null)
+    try {
+      const fromCode = extractCode(from)
+      const toCode   = extractCode(to)
+      const res = await fetch(
+        `${API}/api/flights?from=${fromCode}&to=${toCode}&date=${date}`
+      )
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'API error')
+
+      let flights = data.flights.map(toUiFlight)
+
+      // Budget filter
+      if (budget) flights = flights.filter(f => f.price <= Number(budget))
+      if (!flights.length) flights = data.flights.map(toUiFlight) // relax if nothing fits
+
+      setResults(sortFlights(flights, priority))
+    } catch (err) {
+      setApiError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const best   = results?.[0]
@@ -273,9 +330,9 @@ export default function App() {
             </div>
           </div>
           <div className="flex gap-3">
-            <button onClick={handleSearch} disabled={!canSearch}
-              className={`flex-1 py-2.5 rounded-md text-sm font-medium transition-colors ${canSearch ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
-              Search Flights
+            <button onClick={handleSearch} disabled={!canSearch || loading}
+              className={`flex-1 py-2.5 rounded-md text-sm font-medium transition-colors ${canSearch && !loading ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
+              {loading ? 'Searching…' : 'Search Flights'}
             </button>
             {results && (
               <button onClick={handleClear}
@@ -296,6 +353,13 @@ export default function App() {
           {disabilityMode && <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full">ON</span>}
         </div>
       </div>
+
+      {/* Error banner */}
+      {apiError && (
+        <div className="max-w-3xl mx-auto mb-4 bg-red-50 border border-red-200 rounded-xl px-5 py-3 text-sm text-red-700">
+          ⚠️ {apiError}
+        </div>
+      )}
 
       {/* Empty state */}
       {!results && (
@@ -335,7 +399,7 @@ export default function App() {
                 <div>
                   <p className="text-xs text-gray-500">Airline</p>
                   <p className="font-semibold text-gray-900">{best.airline}</p>
-                  {disabilityMode && best.disabilityFeatures.length > 0 && (
+                  {disabilityMode && best.disabilityFeatures?.length > 0 && (
                     <span className="inline-flex items-center gap-1 mt-1 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
                       ♿ Accessibility friendly
                     </span>
@@ -354,7 +418,7 @@ export default function App() {
                 <div><p className="text-xs text-gray-500">Stops</p><p className="font-medium text-gray-800">{best.stops}</p></div>
               </div>
 
-              {disabilityMode && best.disabilityFeatures.length > 0 && (
+              {disabilityMode && best.disabilityFeatures?.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-blue-200">
                   <p className="text-xs text-gray-500 mb-2">Accessibility features</p>
                   <div className="flex flex-wrap gap-2">
@@ -391,7 +455,7 @@ export default function App() {
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="font-semibold text-gray-900 text-sm">{flight.airline}</p>
-                          {disabilityMode && flight.disabilityFeatures.length > 0 && (
+                          {disabilityMode && flight.disabilityFeatures?.length > 0 && (
                             <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">♿</span>
                           )}
                         </div>
