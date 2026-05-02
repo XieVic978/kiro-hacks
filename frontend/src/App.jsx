@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react'
 import './App.css'
 import AIRPORTS from './data/airports.json'
+import { useContacts } from './store/ContactsContext'
+import { useSearch } from './store/SearchContext'
 
 // ── Airport autocomplete ──────────────────────────────────────────────────────
 
@@ -105,14 +107,6 @@ const MOCK_FLIGHTS = [
   },
 ]
 
-// ── Demo contacts ─────────────────────────────────────────────────────────────
-
-const DEMO_CONTACTS = [
-  { id: 1, name: 'Sarah Chen',    company: 'Google',    city: 'Chicago', role: 'Engineering Manager' },
-  { id: 2, name: 'Marcus Rivera', company: 'Stripe',    city: 'Denver',  role: 'Head of Partnerships' },
-  { id: 3, name: 'Priya Nair',    company: 'Salesforce',city: 'Phoenix', role: 'Product Lead' },
-]
-
 const MIN_MEETUP_MINUTES = 90
 
 // ── Never Waste a Connection ──────────────────────────────────────────────────
@@ -187,80 +181,6 @@ function ConnectionInsight({ layovers, contacts }) {
   )
 }
 
-// ── Contacts panel ────────────────────────────────────────────────────────────
-
-function ContactsPanel({ contacts, onAdd, onRemove }) {
-  const [showForm, setShowForm] = useState(false)
-  const [name, setName]         = useState('')
-  const [company, setCompany]   = useState('')
-  const [city, setCity]         = useState('')
-  const [role, setRole]         = useState('')
-
-  function handleAdd() {
-    if (!name.trim() || !company.trim() || !city.trim()) return
-    onAdd({ id: Date.now(), name: name.trim(), company: company.trim(), city: city.trim(), role: role.trim() })
-    setName(''); setCompany(''); setCity(''); setRole('')
-    setShowForm(false)
-  }
-
-  return (
-    <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-5">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-base">🤝</span>
-          <p className="text-sm font-semibold text-gray-800">My Connections</p>
-          <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">{contacts.length}</span>
-        </div>
-        <button
-          onClick={() => setShowForm(v => !v)}
-          className="text-xs font-medium text-blue-600 hover:text-blue-700 cursor-pointer"
-        >
-          {showForm ? 'Cancel' : '+ Add contact'}
-        </button>
-      </div>
-
-      {/* Contact list */}
-      <div className="space-y-2 mb-3">
-        {contacts.map(c => (
-          <div key={c.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
-            <div>
-              <span className="text-sm font-medium text-gray-800">{c.name}</span>
-              <span className="text-xs text-gray-500 ml-2">{c.role && `${c.role} · `}{c.company}</span>
-              <span className="text-xs text-blue-600 ml-2">📍 {c.city}</span>
-            </div>
-            <button
-              onClick={() => onRemove(c.id)}
-              className="text-gray-300 hover:text-red-400 text-xs cursor-pointer ml-3"
-              title="Remove"
-            >✕</button>
-          </div>
-        ))}
-      </div>
-
-      {/* Add form */}
-      {showForm && (
-        <div className="border-t border-gray-100 pt-3 grid grid-cols-2 gap-2">
-          <input placeholder="Name *" value={name} onChange={e => setName(e.target.value)}
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <input placeholder="Company *" value={company} onChange={e => setCompany(e.target.value)}
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <input placeholder="City *" value={city} onChange={e => setCity(e.target.value)}
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <input placeholder="Role (optional)" value={role} onChange={e => setRole(e.target.value)}
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <button
-            onClick={handleAdd}
-            disabled={!name.trim() || !company.trim() || !city.trim()}
-            className="col-span-2 py-1.5 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 cursor-pointer disabled:cursor-not-allowed transition-colors"
-          >
-            Add Contact
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ── Priorities / sort ─────────────────────────────────────────────────────────
 
 const PRIORITIES = [
@@ -299,14 +219,17 @@ function whyText(priority, flight, disabilityMode) {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [from, setFrom]                     = useState('')
-  const [to, setTo]                         = useState('')
-  const [date, setDate]                     = useState('')
-  const [budget, setBudget]                 = useState('')
-  const [priority, setPriority]             = useState('cheapest')
-  const [disabilityMode, setDisabilityMode] = useState(false)
-  const [results, setResults]               = useState(null)
-  const [contacts, setContacts]             = useState(DEMO_CONTACTS)
+  const { contacts } = useContacts()
+  const {
+    from, setFrom,
+    to, setTo,
+    date, setDate,
+    budget, setBudget,
+    priority, setPriority,
+    disabilityMode, setDisabilityMode,
+    results, setResults,
+    clear: handleClear,
+  } = useSearch()
 
   const canSearch = from.trim() && to.trim() && date && budget
 
@@ -317,10 +240,6 @@ export default function App() {
     if (disabilityMode) pool = pool.filter(f => f.disabilityFeatures.length > 0)
     if (!pool.length) pool = MOCK_FLIGHTS.filter(f => f.disabilityFeatures.length > 0)
     setResults(sortFlights(pool, priority))
-  }
-
-  function handleClear() {
-    setResults(null); setFrom(''); setTo(''); setDate(''); setBudget(''); setDisabilityMode(false)
   }
 
   const best   = results?.[0]
@@ -335,13 +254,6 @@ export default function App() {
           Let AI help you find the perfect flight based on what matters most to you
         </p>
       </div>
-
-      {/* Contacts panel */}
-      <ContactsPanel
-        contacts={contacts}
-        onAdd={c => setContacts(prev => [...prev, c])}
-        onRemove={id => setContacts(prev => prev.filter(c => c.id !== id))}
-      />
 
       {/* Search card + disability toggle */}
       <div className="max-w-3xl mx-auto mb-5 flex gap-3 items-start">
