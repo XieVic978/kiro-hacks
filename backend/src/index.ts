@@ -55,12 +55,109 @@ interface FlightItem {
 
 type FlightSection = 'best_flights' | 'other_flights'
 
+interface BookingOptionOffer {
+  book_with?: string
+  price?: number
+  airline?: boolean
+}
+
+interface BookingOption {
+  together?: BookingOptionOffer
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60)
   const m = minutes % 60
   return `${h}h ${m}m`
+}
+
+async function fetchSerpApiJson(params: URLSearchParams) {
+  const response = await fetch(`https://serpapi.com/search?${params}`)
+  const text = await response.text()
+
+  if (!text) {
+    throw new Error('Empty response from SerpAPI')
+  }
+
+  let data: Record<string, unknown>
+  try {
+    data = JSON.parse(text)
+  } catch {
+    console.error('SerpAPI raw response:', text.slice(0, 500))
+    throw new Error('Invalid JSON from SerpAPI')
+  }
+
+  if (data.error) {
+    throw new Error(String(data.error))
+  }
+
+  return data
+}
+
+function extractLivePrice(bookingOptions: BookingOption[]) {
+  const pricedOffers = bookingOptions
+    .map(option => option.together)
+    .filter((offer): offer is BookingOptionOffer => typeof offer?.price === 'number')
+    .sort((a, b) => (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER))
+
+  if (!pricedOffers.length) return null
+
+  const bestOffer = pricedOffers[0]
+  return {
+    price: bestOffer.price ?? null,
+    provider: bestOffer.book_with ?? null,
+    airline_direct: bestOffer.airline ?? false,
+  }
+}
+
+async function enrichFlightWithLivePrice(item: FlightItem, from: string, to: string, date: string) {
+  if (!item.booking_token || !SERPAPI_KEY) {
+    return item
+  }
+
+  const params = new URLSearchParams({
+    engine: 'google_flights',
+    departure_id: from,
+    arrival_id: to,
+    outbound_date: date,
+    type: '2',
+    hl: 'en',
+    currency: 'USD',
+    booking_token: String(item.booking_token),
+    api_key: SERPAPI_KEY,
+  })
+
+  try {
+    const data = await fetchSerpApiJson(params)
+    const bookingOptions = (data.booking_options ?? []) as BookingOption[]
+    const livePrice = extractLivePrice(bookingOptions)
+
+    if (!livePrice) {
+      return {
+        ...item,
+        price_source: 'search_results',
+        live_booking_options: bookingOptions,
+      }
+    }
+
+    return {
+      ...item,
+      price: livePrice.price,
+      search_results_price: item.price ?? null,
+      booking_provider: livePrice.provider,
+      booking_provider_is_airline: livePrice.airline_direct,
+      price_source: 'booking_options',
+      live_booking_options: bookingOptions,
+    }
+  } catch (error) {
+    console.error('Failed to enrich flight with live price:', error)
+    return {
+      ...item,
+      price_source: 'search_results',
+    }
+  }
 }
 
 function normalizeFlightResult(item: FlightItem, section: FlightSection) {
@@ -135,34 +232,16 @@ app.get('/api/flights', async (req: Request, res: Response) => {
   })
 
   try {
-    const response = await fetch(`https://serpapi.com/search?${params}`)
-    const text = await response.text()
-
-    if (!text) {
-      res.status(502).json({ error: 'Empty response from SerpAPI' })
-      return
-    }
-
-    let data: Record<string, unknown>
-    try {
-      data = JSON.parse(text)
-    } catch {
-      console.error('SerpAPI raw response:', text.slice(0, 500))
-      res.status(502).json({ error: 'Invalid JSON from SerpAPI' })
-      return
-    }
-
-    // Surface any SerpAPI-level error
-    if (data.error) {
-      res.status(502).json({ error: data.error })
-      return
-    }
+    const data = await fetchSerpApiJson(params)
 
     const sections: FlightSection[] = ['best_flights', 'other_flights']
-    const flights = sections.flatMap(section => {
+    const rawFlights = sections.flatMap(section => {
       const items = (data[section] ?? []) as FlightItem[]
       return items.map(item => normalizeFlightResult(item, section))
     })
+    const flights = await Promise.all(
+      rawFlights.map(item => enrichFlightWithLivePrice(item, from, to, date))
+    )
 
     res.json({
       flights,
@@ -198,6 +277,108 @@ app.post('/api/recommend', async (req: Request, res: Response) => {
     res.json(result)
   } catch (err) {
     res.status(502).json({ error: String(err) })
+  }
+})
+
+app.get('/api/google-flights-link', async (req: Request, res: Response) => {
+  const {
+    from,
+    to,
+    date,
+    returnDate,
+    bookingToken,
+  } = req.query as Record<string, string>
+
+  if (!from || !to || !date || !bookingToken) {
+    res.status(400).json({ error: 'Missing required params: from, to, date, bookingToken' })
+    return
+  }
+
+  if (!SERPAPI_KEY) {
+    res.status(500).json({ error: 'Missing SERPAPI_KEY environment variable' })
+    return
+  }
+
+  const params = new URLSearchParams({
+    engine: 'google_flights',
+    departure_id: from,
+    arrival_id: to,
+    outbound_date: date,
+    type: returnDate ? '1' : '2',
+    hl: 'en',
+    currency: 'USD',
+    booking_token: bookingToken,
+    api_key: SERPAPI_KEY,
+  })
+
+  if (returnDate) params.set('return_date', returnDate)
+
+  try {
+    const data = await fetchSerpApiJson(params)
+
+    const googleFlightsUrl = (data.search_metadata as { google_flights_url?: string } | undefined)?.google_flights_url
+
+    if (!googleFlightsUrl) {
+      res.status(404).json({ error: 'No Google Flights URL returned for this flight' })
+      return
+    }
+
+    res.json({
+      url: googleFlightsUrl,
+      selected_flights: data.selected_flights ?? [],
+      booking_options: data.booking_options ?? [],
+    })
+  } catch (err) {
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+app.get('/api/google-flights-redirect', async (req: Request, res: Response) => {
+  const {
+    from,
+    to,
+    date,
+    returnDate,
+    bookingToken,
+  } = req.query as Record<string, string>
+
+  if (!from || !to || !date) {
+    res.status(400).send('Missing required params: from, to, date')
+    return
+  }
+
+  const fallbackUrl = `https://www.google.com/travel/flights?hl=en#flt=${from}.${to}.${date};c:USD;e:1;sd:1;t:f`
+
+  if (!bookingToken) {
+    res.redirect(fallbackUrl)
+    return
+  }
+
+  if (!SERPAPI_KEY) {
+    res.redirect(fallbackUrl)
+    return
+  }
+
+  const params = new URLSearchParams({
+    engine: 'google_flights',
+    departure_id: from,
+    arrival_id: to,
+    outbound_date: date,
+    type: returnDate ? '1' : '2',
+    hl: 'en',
+    currency: 'USD',
+    booking_token: bookingToken,
+    api_key: SERPAPI_KEY,
+  })
+
+  if (returnDate) params.set('return_date', returnDate)
+
+  try {
+    const data = await fetchSerpApiJson(params)
+    const googleFlightsUrl = (data.search_metadata as { google_flights_url?: string } | undefined)?.google_flights_url
+    res.redirect(googleFlightsUrl || fallbackUrl)
+  } catch {
+    res.redirect(fallbackUrl)
   }
 })
 

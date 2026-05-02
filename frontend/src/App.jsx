@@ -143,7 +143,23 @@ function ConnectionInsight({ layovers, contacts }) {
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-const API = 'http://localhost:5051'
+const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5051'
+
+function buildGoogleFlightsSearchUrl(fromCode, toCode, date) {
+  return `https://www.google.com/travel/flights?hl=en#flt=${fromCode}.${toCode}.${date};c:USD;e:1;sd:1;t:f`
+}
+
+function buildGoogleFlightsRedirectUrl(fromCode, toCode, date, bookingToken = null) {
+  const params = new URLSearchParams({
+    from: fromCode,
+    to: toCode,
+    date,
+  })
+
+  if (bookingToken) params.set('bookingToken', bookingToken)
+
+  return `${API}/api/google-flights-redirect?${params.toString()}`
+}
 
 function extractCode(val) {
   const m = val.match(/\(([A-Z]{3})\)/)
@@ -158,17 +174,22 @@ function normalizeLayovers(rawLayovers = []) {
   }))
 }
 
-function toUiFlight(f, index) {
+function toUiFlight(f, index, fromCode, toCode, date) {
   return {
-    id:          index,
-    airline:     f.airline ?? 'Unknown',
-    dep:         f.departure_time ?? '—',
-    arr:         f.arrival_time   ?? '—',
-    duration:    f.duration       ?? '—',
-    stops:       f.stops_text     ?? 'Non-stop',
-    price:       f.price          ?? 0,
-    layovers:    normalizeLayovers(f.layovers ?? []),
-    result_type: f.result_type    ?? 'other',
+    id:            f.booking_token ?? `${fromCode}-${toCode}-${date}-${index}`,
+    airline:       f.airline ?? 'Unknown',
+    dep:           f.departure_time ?? '—',
+    arr:           f.arrival_time   ?? '—',
+    duration:      f.duration       ?? '—',
+    stops:         f.stops_text     ?? 'Non-stop',
+    price:         f.price          ?? 0,
+    layovers:      normalizeLayovers(f.layovers ?? []),
+    result_type:   f.result_type    ?? 'other',
+    booking_token: f.booking_token  ?? null,
+    booking_provider: f.booking_provider ?? null,
+    price_source:  f.price_source ?? 'search_results',
+    search_results_price: f.search_results_price ?? null,
+    google_flights_redirect_url: buildGoogleFlightsRedirectUrl(fromCode, toCode, date, f.booking_token ?? null),
   }
 }
 
@@ -294,12 +315,16 @@ export default function App() {
     setApiError(null)
     setResults(null)
     try {
-      const fromCode = extractCode(from)
-      const toCode   = extractCode(to)
-      const res  = await fetch(`${API}/api/flights?from=${fromCode}&to=${toCode}&date=${date}`)
+      const searchedFromCode = extractCode(from)
+      const searchedToCode   = extractCode(to)
+      const searchedDate     = date
+      const res  = await fetch(`${API}/api/flights?from=${searchedFromCode}&to=${searchedToCode}&date=${searchedDate}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'API error')
-      setResults(sortFlights(data.flights.map(toUiFlight), priority))
+      const uiFlights = data.flights.map((flight, index) =>
+        toUiFlight(flight, index, searchedFromCode, searchedToCode, searchedDate)
+      )
+      setResults(sortFlights(uiFlights, priority))
     } catch (err) {
       setApiError(err.message)
     } finally {
@@ -393,6 +418,9 @@ export default function App() {
                 <div className="text-right">
                   <p className="text-xs text-gray-500">Price</p>
                   <p className="text-blue-600 font-semibold text-lg">${best.price}</p>
+                  {best.booking_provider && (
+                    <p className="text-xs text-gray-500 mt-0.5">via {best.booking_provider}</p>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -402,6 +430,15 @@ export default function App() {
                 <div><p className="text-xs text-gray-500">Stops</p><p className="font-medium text-gray-800">{best.stops}</p></div>
               </div>
               <ConnectionInsight layovers={best.layovers} contacts={contacts} />
+              <a
+                href={best.google_flights_redirect_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 flex items-center justify-center gap-2 w-full py-2 rounded-md text-sm font-medium bg-white border border-blue-300 text-blue-600 hover:bg-blue-50 transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81z"/></svg>
+                View Flights
+              </a>
             </div>
           )}
 
@@ -426,9 +463,21 @@ export default function App() {
                       </div>
                       <p className="text-gray-800 font-semibold text-sm">${flight.price}</p>
                     </div>
+                    {flight.booking_provider && (
+                      <p className="text-xs text-gray-500 mt-2">via {flight.booking_provider}</p>
+                    )}
                     {flight.layovers?.length > 0 && (
                       <ConnectionInsight layovers={flight.layovers} contacts={contacts} />
                     )}
+                    <a
+                      href={flight.google_flights_redirect_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 flex items-center justify-center gap-2 w-full py-1.5 rounded-md text-xs font-medium bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81z"/></svg>
+                      View Flights
+                    </a>
                   </div>
                 ))}
               </div>
