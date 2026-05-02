@@ -23,5 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 
-# virtual environment
-backend/.venv/
+#env 
+backend/.env.local
+
