@@ -72,9 +72,9 @@ function AirportInput({ label, placeholder, value, onChange }) {
   )
 }
 
-const MIN_MEETUP_MINUTES = 90
-
 // ── Never Waste a Connection ──────────────────────────────────────────────────
+
+const MIN_MEETUP_MINUTES = 90
 
 function formatLayover(minutes) {
   const h = Math.floor(minutes / 60)
@@ -87,19 +87,14 @@ function getMatchingContacts(layovers, contacts) {
   for (const layover of layovers) {
     if (layover.layoverMinutes < MIN_MEETUP_MINUTES) continue
     const haystack = `${layover.city} ${layover.airport}`.toLowerCase()
-    const cityContacts = contacts.filter(c =>
-      haystack.includes(c.city.toLowerCase())
-    )
-    if (cityContacts.length > 0) {
-      matches.push({ layover, contacts: cityContacts })
-    }
+    const cityContacts = contacts.filter(c => haystack.includes(c.city.toLowerCase()))
+    if (cityContacts.length > 0) matches.push({ layover, contacts: cityContacts })
   }
   return matches
 }
 
 function ConnectionInsight({ layovers, contacts }) {
   if (!layovers || layovers.length === 0) return null
-
   const meetupMatches = getMatchingContacts(layovers, contacts)
 
   return (
@@ -114,7 +109,6 @@ function ConnectionInsight({ layovers, contacts }) {
                 {formatLayover(layover.layoverMinutes)}
               </span>
             </div>
-
             {match ? (
               <div className="mt-2 bg-green-50 border border-green-200 rounded-md px-3 py-2">
                 <p className="text-xs font-semibold text-green-700 mb-1.5">
@@ -151,13 +145,11 @@ function ConnectionInsight({ layovers, contacts }) {
 
 const API = 'http://localhost:5051'
 
-// Extract IATA code from strings like "San Francisco (SFO)"
 function extractCode(val) {
   const m = val.match(/\(([A-Z]{3})\)/)
   return m ? m[1] : val.trim()
 }
 
-// Map SerpAPI layover data → our layover shape
 function normalizeLayovers(rawLayovers = []) {
   return rawLayovers.map(l => ({
     city:           l.name ?? '',
@@ -166,7 +158,6 @@ function normalizeLayovers(rawLayovers = []) {
   }))
 }
 
-// Map a normalized backend flight → UI flight shape
 function toUiFlight(f, index) {
   return {
     id:          index,
@@ -181,6 +172,8 @@ function toUiFlight(f, index) {
   }
 }
 
+// ── Priorities / sort ─────────────────────────────────────────────────────────
+
 const PRIORITIES = [
   { key: 'cheapest', label: 'Cheapest', emoji: '💰' },
   { key: 'fastest',  label: 'Fastest',  emoji: '⚡' },
@@ -191,12 +184,15 @@ function sortFlights(flights, priority) {
   if (priority === 'cheapest') return sorted.sort((a, b) => a.price - b.price)
   if (priority === 'fastest') return sorted.sort((a, b) => {
     const mins = f => {
-      const [h, m] = f.duration.replace('h', '').replace('m', '').trim().split(' ')
+      const [h, m] = (f.duration ?? '0h 0m').replace('h', '').replace('m', '').trim().split(' ')
       return parseInt(h) * 60 + parseInt(m)
     }
     return mins(a) - mins(b)
   })
-  return sorted
+  return sorted.sort((a, b) => {
+    const nonstop = x => x.stops === 'Non-stop' ? 0 : 1
+    return nonstop(a) - nonstop(b) || a.price - b.price
+  })
 }
 
 function whyText(priority, flight) {
@@ -204,64 +200,70 @@ function whyText(priority, flight) {
     return `This flight offers the lowest price at $${flight.price}, saving you money while still getting you to your destination efficiently.`
   if (priority === 'fastest')
     return `This flight has the shortest travel time at ${flight.duration}, getting you to your destination as quickly as possible.`
-  return `This flight is a solid option at $${flight.price} with ${flight.stops}.`
+  return `This flight offers the best comfort with ${flight.stops} and a reasonable price of $${flight.price}.`
 }
 
-// ── WhyThisFlight ─────────────────────────────────────────────────────────────
+// ── Why this flight (Groq AI) ─────────────────────────────────────────────────
 
 function WhyThisFlight({ best, allFlights, priority }) {
   const [aiText, setAiText]       = useState(null)
-  const [aiLoading, setAiLoading] = useState(false)
-  const [aiError, setAiError]     = useState(null)
-  const [shownFor, setShownFor]   = useState(null)
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState(null)
 
-  // Reset AI text when the best flight changes
-  if (shownFor !== best) {
-    setShownFor(best)
+  // Reset when best flight changes
+  const [lastBestId, setLastBestId] = useState(null)
+  if (best?.id !== lastBestId) {
+    setLastBestId(best?.id ?? null)
     if (aiText)  setAiText(null)
-    if (aiError) setAiError(null)
+    if (error)   setError(null)
   }
 
-  async function handleAskAI() {
-    setAiLoading(true)
-    setAiError(null)
+  async function askAI() {
+    setLoading(true)
+    setError(null)
     try {
-      const userPrompt = `I'm looking for the ${priority === 'cheapest' ? 'cheapest' : 'fastest'} flight.`
       const res  = await fetch(`${API}/api/recommend`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ flights: allFlights, prompt: userPrompt }),
+        body:    JSON.stringify({
+          flights: allFlights,
+          prompt:  `I want the ${priority} flight. The top pick is ${best.airline} at $${best.price} (${best.duration}, ${best.stops}). Explain in 2-3 sentences why this is the best choice compared to the other options. Use the airline name, not index numbers.`,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'AI request failed')
       setAiText(data.reasoning ?? data.recommendation)
     } catch (err) {
-      setAiError(err.message)
+      setError(err.message)
     } finally {
-      setAiLoading(false)
+      setLoading(false)
     }
   }
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-      <div className="flex gap-3 items-start">
+      <div className="flex gap-3 items-start mb-3">
         <span className="text-xl">🤖</span>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1">
           <p className="text-gray-800 font-medium text-sm mb-0.5">Why this flight?</p>
-          <p className="text-blue-600 text-sm">{aiText ?? whyText(priority, best)}</p>
-          {aiError && <p className="text-red-500 text-xs mt-1">{aiError}</p>}
+          {aiText ? (
+            <p className="text-blue-600 text-sm">{aiText}</p>
+          ) : (
+            <p className="text-gray-400 text-sm">{whyText(priority, best)}</p>
+          )}
+          {error && <p className="text-red-500 text-xs mt-1">⚠️ {error}</p>}
         </div>
       </div>
       {!aiText && (
         <button
-          onClick={handleAskAI}
-          disabled={aiLoading}
-          className={`mt-3 w-full py-2 rounded-md text-sm font-medium border transition-colors cursor-pointer
-            ${aiLoading
-              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+          onClick={askAI}
+          disabled={loading}
+          className={`w-full py-2 rounded-md text-sm font-medium border transition-colors cursor-pointer
+            ${loading
+              ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
               : 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50'}`}
         >
-          {aiLoading ? 'Asking AI…' : '✨ Help me understand this flight'}
+          {loading ? '✨ Asking AI…' : '✨ Ask AI to explain this pick'}
         </button>
       )}
     </div>
@@ -276,7 +278,6 @@ export default function App() {
     from, setFrom,
     to, setTo,
     date, setDate,
-    budget, setBudget,
     priority, setPriority,
     results, setResults,
     clear: handleClear,
@@ -295,17 +296,10 @@ export default function App() {
     try {
       const fromCode = extractCode(from)
       const toCode   = extractCode(to)
-      const res = await fetch(
-        `${API}/api/flights?from=${fromCode}&to=${toCode}&date=${date}`
-      )
+      const res  = await fetch(`${API}/api/flights?from=${fromCode}&to=${toCode}&date=${date}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'API error')
-
-      let flights = data.flights.map(toUiFlight)
-      if (budget) flights = flights.filter(f => f.price <= Number(budget))
-      if (!flights.length) flights = data.flights.map(toUiFlight)
-
-      setResults(sortFlights(flights, priority))
+      setResults(sortFlights(data.flights.map(toUiFlight), priority))
     } catch (err) {
       setApiError(err.message)
     } finally {
@@ -327,33 +321,27 @@ export default function App() {
       </div>
 
       {/* Search card */}
-      <div className="max-w-3xl mx-auto mb-5">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="grid grid-cols-4 gap-4 mb-4">
-      {/* Search card + disability toggle */}
-      <div className="max-w-3xl mx-auto mb-5 flex gap-3 items-start">
-        <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <AirportInput label="From" placeholder="San Francisco" value={from} onChange={setFrom} />
-            <AirportInput label="To"   placeholder="New York"      value={to}   onChange={setTo}   />
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Date</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
+      <div className="max-w-3xl mx-auto mb-5 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <AirportInput label="From" placeholder="San Francisco" value={from} onChange={setFrom} />
+          <AirportInput label="To"   placeholder="New York"      value={to}   onChange={setTo}   />
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">Date</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          <div className="flex gap-3">
-            <button onClick={handleSearch} disabled={!canSearch || loading}
-              className={`flex-1 py-2.5 rounded-md text-sm font-medium transition-colors ${canSearch && !loading ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
-              {loading ? 'Searching…' : 'Search Flights'}
+        </div>
+        <div className="flex gap-3">
+          <button onClick={handleSearch} disabled={!canSearch || loading}
+            className={`flex-1 py-2.5 rounded-md text-sm font-medium transition-colors ${canSearch && !loading ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
+            {loading ? 'Searching…' : 'Search Flights'}
+          </button>
+          {results && (
+            <button onClick={handleClear}
+              className="px-5 py-2.5 rounded-md text-sm font-medium bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
+              Clear
             </button>
-            {results && (
-              <button onClick={handleClear}
-                className="px-5 py-2.5 rounded-md text-sm font-medium bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer">
-                Clear
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
@@ -365,7 +353,7 @@ export default function App() {
       )}
 
       {/* Empty state */}
-      {!results && (
+      {!results && !loading && (
         <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
           <div className="text-5xl mb-4">✈️</div>
           <p className="text-gray-800 font-medium text-base">Ready to find your perfect flight?</p>
@@ -397,7 +385,6 @@ export default function App() {
               <div className="absolute -top-3.5 left-4">
                 <span className="bg-blue-600 text-white text-xs font-semibold px-3 py-1 rounded-full">⭐ Best Match</span>
               </div>
-
               <div className="flex justify-between items-start mb-4 mt-1">
                 <div>
                   <p className="text-xs text-gray-500">Airline</p>
@@ -408,26 +395,18 @@ export default function App() {
                   <p className="text-blue-600 font-semibold text-lg">${best.price}</p>
                 </div>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
                 <div><p className="text-xs text-gray-500">Departure</p><p className="font-medium text-gray-800">{best.dep}</p></div>
                 <div><p className="text-xs text-gray-500">Arrival</p><p className="font-medium text-gray-800">{best.arr}</p></div>
                 <div><p className="text-xs text-gray-500">Duration</p><p className="font-medium text-gray-800">{best.duration}</p></div>
                 <div><p className="text-xs text-gray-500">Stops</p><p className="font-medium text-gray-800">{best.stops}</p></div>
               </div>
-
               <ConnectionInsight layovers={best.layovers} contacts={contacts} />
             </div>
           )}
 
           {/* Why this flight */}
-          {best && (
-            <WhyThisFlight
-              best={best}
-              allFlights={results}
-              priority={priority}
-            />
-          )}
+          {best && <WhyThisFlight best={best} allFlights={results} priority={priority} />}
 
           {/* Other options */}
           {others && others.length > 0 && (

@@ -4,14 +4,14 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
 const GROQ_MODEL   = 'llama-3.3-70b-versatile'
 
 export interface FlightSummary {
-  airline:       string
-  departure_time: string | null
-  arrival_time:   string | null
-  duration:       string | null
+  airline:         string
+  departure_time:  string | null
+  arrival_time:    string | null
+  duration:        string | null
   number_of_stops: number
-  price:          number | null
-  result_type:    string
-  flight_numbers: string[]
+  price:           number | null
+  result_type:     string
+  flight_numbers:  string[]
 }
 
 export interface GroqRecommendation {
@@ -26,20 +26,20 @@ export async function recommendFlights(
   groqApiKey: string
 ): Promise<GroqRecommendation> {
   const flightList = flights
-    .map((f, i) =>
-      `[${i}] ${f.airline} | ${f.departure_time} → ${f.arrival_time} | ` +
-      `${f.duration} | ${f.number_of_stops === 0 ? 'Non-stop' : `${f.number_of_stops} stop(s)`} | ` +
-      `$${f.price ?? 'N/A'} | ${f.result_type}`
-    )
+    .map(f => {
+      const stops = f.number_of_stops === 0 ? 'Non-stop' : `${f.number_of_stops} stop(s)`
+      return `${f.airline} | ${f.departure_time} → ${f.arrival_time} | ${f.duration} | ${stops} | $${f.price ?? 'N/A'}`
+    })
     .join('\n')
 
   const systemPrompt = `You are a helpful flight recommendation assistant.
-Given a list of flights and a user's preference or question, recommend the best option.
+Given a list of flights and a user preference, explain why the top pick is the best choice.
+Always refer to flights by their airline name, never by index numbers.
 Respond ONLY with valid JSON in this exact shape:
 {
-  "recommendation": "<one sentence recommendation>",
-  "reasoning": "<2-3 sentence explanation>",
-  "top_pick_index": <number — the index of the best flight, or null if unclear>
+  "recommendation": "<one sentence recommendation using the airline name>",
+  "reasoning": "<2-3 sentence explanation using airline names, not index numbers>",
+  "top_pick_index": null
 }`
 
   const userMessage = `User preference: ${userPrompt}\n\nAvailable flights:\n${flightList}`
@@ -51,7 +51,7 @@ Respond ONLY with valid JSON in this exact shape:
       'Authorization': `Bearer ${groqApiKey}`,
     },
     body: JSON.stringify({
-      model:    GROQ_MODEL,
+      model:       GROQ_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userMessage  },
@@ -74,7 +74,6 @@ Respond ONLY with valid JSON in this exact shape:
   try {
     return JSON.parse(content) as GroqRecommendation
   } catch {
-    // If Groq wraps the JSON in markdown fences, strip them
     const match = content.match(/```(?:json)?\s*([\s\S]*?)```/)
     if (match) return JSON.parse(match[1]) as GroqRecommendation
     throw new Error(`Could not parse Groq response: ${content}`)
