@@ -3,13 +3,16 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import fetch from 'node-fetch'
 import airports from './airports.json'
+import { recommendFlights, FlightSummary } from './scoring'
 
 dotenv.config({ path: '.env.local' })
 
 const app = express()
 app.use(cors())
+app.use(express.json())
 
 const SERPAPI_KEY = process.env.SERPAPI_KEY ?? process.env.VITE_SERPAPI_KEY
+const GROQ_KEY    = process.env.GROQ_API_KEY ?? process.env.VITE_GROQ_API_KEY
 const PORT = Number(process.env.PORT ?? 5051)
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -173,6 +176,28 @@ app.get('/api/flights', async (req: Request, res: Response) => {
     })
   } catch (err) {
     res.status(500).json({ error: String(err) })
+  }
+})
+
+// AI recommendation — calls Groq with flight list + user prompt
+app.post('/api/recommend', async (req: Request, res: Response) => {
+  const { flights, prompt } = req.body as { flights: FlightSummary[]; prompt: string }
+
+  if (!flights?.length || !prompt) {
+    res.status(400).json({ error: 'Missing required body fields: flights, prompt' })
+    return
+  }
+
+  if (!GROQ_KEY) {
+    res.status(500).json({ error: 'Missing GROQ_API_KEY environment variable' })
+    return
+  }
+
+  try {
+    const result = await recommendFlights(flights, prompt, GROQ_KEY)
+    res.json(result)
+  } catch (err) {
+    res.status(502).json({ error: String(err) })
   }
 })
 

@@ -72,41 +72,6 @@ function AirportInput({ label, placeholder, value, onChange }) {
   )
 }
 
-// ── Mock flight data ──────────────────────────────────────────────────────────
-
-const MOCK_FLIGHTS = [
-  {
-    id: 1, airline: 'Southwest',         dep: '7:00 AM',  arr: '3:00 PM',  duration: '8h 0m',  stops: '2 stops',  price: 229,
-    disabilityFeatures: ['Wheelchair assistance', 'Priority boarding', 'Accessible lavatories'],
-    layovers: [
-      { city: 'Denver',  airport: 'Denver (DEN)',          layoverMinutes: 55  },
-      { city: 'Phoenix', airport: 'Phoenix (PHX)',          layoverMinutes: 40  },
-    ],
-  },
-  {
-    id: 2, airline: 'Delta Airlines',    dep: '8:00 AM',  arr: '2:00 PM',  duration: '6h 0m',  stops: 'Non-stop', price: 299,
-    disabilityFeatures: ['Wheelchair assistance', 'Priority boarding', 'Onboard wheelchair', 'Hearing loop'],
-    layovers: [],
-  },
-  {
-    id: 3, airline: 'United Airlines',   dep: '9:30 AM',  arr: '4:30 PM',  duration: '7h 0m',  stops: '1 stop',   price: 249,
-    disabilityFeatures: [],
-    layovers: [
-      { city: 'Chicago', airport: "Chicago O'Hare (ORD)",  layoverMinutes: 120 },
-    ],
-  },
-  {
-    id: 4, airline: 'American Airlines', dep: '6:00 AM',  arr: '11:30 AM', duration: '5h 30m', stops: 'Non-stop', price: 349,
-    disabilityFeatures: ['Wheelchair assistance', 'Accessible lavatories', 'Service animal relief area'],
-    layovers: [],
-  },
-  {
-    id: 5, airline: 'JetBlue',           dep: '12:00 PM', arr: '6:30 PM',  duration: '6h 30m', stops: 'Non-stop', price: 279,
-    disabilityFeatures: ['Wheelchair assistance', 'Priority boarding'],
-    layovers: [],
-  },
-]
-
 const MIN_MEETUP_MINUTES = 90
 
 // ── Never Waste a Connection ──────────────────────────────────────────────────
@@ -204,24 +169,21 @@ function normalizeLayovers(rawLayovers = []) {
 // Map a normalized backend flight → UI flight shape
 function toUiFlight(f, index) {
   return {
-    id:                index,
-    airline:           f.airline ?? 'Unknown',
-    dep:               f.departure_time ?? '—',
-    arr:               f.arrival_time   ?? '—',
-    duration:          f.duration       ?? '—',
-    stops:             f.stops_text     ?? 'Non-stop',
-    price:             f.price          ?? 0,
-    disabilityFeatures: [],           // SerpAPI doesn't provide this
-    layovers:          normalizeLayovers(f.layovers ?? []),
-    result_type:       f.result_type   ?? 'other',
+    id:          index,
+    airline:     f.airline ?? 'Unknown',
+    dep:         f.departure_time ?? '—',
+    arr:         f.arrival_time   ?? '—',
+    duration:    f.duration       ?? '—',
+    stops:       f.stops_text     ?? 'Non-stop',
+    price:       f.price          ?? 0,
+    layovers:    normalizeLayovers(f.layovers ?? []),
+    result_type: f.result_type    ?? 'other',
   }
 }
-
 
 const PRIORITIES = [
   { key: 'cheapest', label: 'Cheapest', emoji: '💰' },
   { key: 'fastest',  label: 'Fastest',  emoji: '⚡' },
-  { key: 'comfort',  label: 'Comfort',  emoji: '✨' },
 ]
 
 function sortFlights(flights, priority) {
@@ -234,21 +196,76 @@ function sortFlights(flights, priority) {
     }
     return mins(a) - mins(b)
   })
-  return sorted.sort((a, b) => {
-    const nonstop = x => x.stops === 'Non-stop' ? 0 : 1
-    return nonstop(a) - nonstop(b) || a.price - b.price
-  })
+  return sorted
 }
 
-function whyText(priority, flight, disabilityMode) {
-  const disabilityNote = disabilityMode && flight.disabilityFeatures.length
-    ? ` It also offers ${flight.disabilityFeatures.length} accessibility feature${flight.disabilityFeatures.length > 1 ? 's' : ''} including ${flight.disabilityFeatures[0].toLowerCase()}.`
-    : ''
+function whyText(priority, flight) {
   if (priority === 'cheapest')
-    return `This flight offers the lowest price at $${flight.price}, saving you money while still getting you to your destination efficiently.${disabilityNote}`
+    return `This flight offers the lowest price at $${flight.price}, saving you money while still getting you to your destination efficiently.`
   if (priority === 'fastest')
-    return `This flight has the shortest travel time at ${flight.duration}, getting you to your destination as quickly as possible.${disabilityNote}`
-  return `This flight offers the best comfort with ${flight.stops} and a reasonable price of $${flight.price}.${disabilityNote}`
+    return `This flight has the shortest travel time at ${flight.duration}, getting you to your destination as quickly as possible.`
+  return `This flight is a solid option at $${flight.price} with ${flight.stops}.`
+}
+
+// ── WhyThisFlight ─────────────────────────────────────────────────────────────
+
+function WhyThisFlight({ best, allFlights, priority }) {
+  const [aiText, setAiText]       = useState(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError]     = useState(null)
+  const [shownFor, setShownFor]   = useState(null)
+
+  // Reset AI text when the best flight changes
+  if (shownFor !== best) {
+    setShownFor(best)
+    if (aiText)  setAiText(null)
+    if (aiError) setAiError(null)
+  }
+
+  async function handleAskAI() {
+    setAiLoading(true)
+    setAiError(null)
+    try {
+      const userPrompt = `I'm looking for the ${priority === 'cheapest' ? 'cheapest' : 'fastest'} flight.`
+      const res  = await fetch(`${API}/api/recommend`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ flights: allFlights, prompt: userPrompt }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'AI request failed')
+      setAiText(data.reasoning ?? data.recommendation)
+    } catch (err) {
+      setAiError(err.message)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+      <div className="flex gap-3 items-start">
+        <span className="text-xl">🤖</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-gray-800 font-medium text-sm mb-0.5">Why this flight?</p>
+          <p className="text-blue-600 text-sm">{aiText ?? whyText(priority, best)}</p>
+          {aiError && <p className="text-red-500 text-xs mt-1">{aiError}</p>}
+        </div>
+      </div>
+      {!aiText && (
+        <button
+          onClick={handleAskAI}
+          disabled={aiLoading}
+          className={`mt-3 w-full py-2 rounded-md text-sm font-medium border transition-colors cursor-pointer
+            ${aiLoading
+              ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+              : 'bg-white text-blue-600 border-blue-300 hover:bg-blue-50'}`}
+        >
+          {aiLoading ? 'Asking AI…' : '✨ Help me understand this flight'}
+        </button>
+      )}
+    </div>
+  )
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
@@ -261,7 +278,6 @@ export default function App() {
     date, setDate,
     budget, setBudget,
     priority, setPriority,
-    disabilityMode, setDisabilityMode,
     results, setResults,
     clear: handleClear,
   } = useSearch()
@@ -286,10 +302,8 @@ export default function App() {
       if (!res.ok) throw new Error(data.error ?? 'API error')
 
       let flights = data.flights.map(toUiFlight)
-
-      // Budget filter
       if (budget) flights = flights.filter(f => f.price <= Number(budget))
-      if (!flights.length) flights = data.flights.map(toUiFlight) // relax if nothing fits
+      if (!flights.length) flights = data.flights.map(toUiFlight)
 
       setResults(sortFlights(flights, priority))
     } catch (err) {
@@ -312,6 +326,10 @@ export default function App() {
         </p>
       </div>
 
+      {/* Search card */}
+      <div className="max-w-3xl mx-auto mb-5">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="grid grid-cols-4 gap-4 mb-4">
       {/* Search card + disability toggle */}
       <div className="max-w-3xl mx-auto mb-5 flex gap-3 items-start">
         <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -336,16 +354,6 @@ export default function App() {
               </button>
             )}
           </div>
-        </div>
-
-        {/* Disability toggle */}
-        <div className="shrink-0 flex flex-col items-center gap-2 pt-1">
-          <button type="button" onClick={() => setDisabilityMode(v => !v)} aria-pressed={disabilityMode}
-            title="Disability-friendly flights only"
-            className={`w-14 h-14 rounded-xl border-2 text-2xl flex items-center justify-center transition-colors cursor-pointer ${disabilityMode ? 'bg-purple-100 border-purple-400 text-purple-700' : 'bg-white border-gray-300 text-gray-400 hover:border-purple-300 hover:text-purple-500'}`}>
-            ♿
-          </button>
-          {disabilityMode && <span className="text-xs font-semibold text-purple-600 bg-purple-100 px-2 py-0.5 rounded-full">ON</span>}
         </div>
       </div>
 
@@ -372,7 +380,7 @@ export default function App() {
           {/* Priority selector */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
             <p className="text-gray-800 font-medium mb-3">What matters most to you?</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {PRIORITIES.map(p => (
                 <button key={p.key}
                   onClick={() => { setPriority(p.key); setResults(sortFlights(results, p.key)) }}
@@ -394,11 +402,6 @@ export default function App() {
                 <div>
                   <p className="text-xs text-gray-500">Airline</p>
                   <p className="font-semibold text-gray-900">{best.airline}</p>
-                  {disabilityMode && best.disabilityFeatures?.length > 0 && (
-                    <span className="inline-flex items-center gap-1 mt-1 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                      ♿ Accessibility friendly
-                    </span>
-                  )}
                 </div>
                 <div className="text-right">
                   <p className="text-xs text-gray-500">Price</p>
@@ -413,30 +416,17 @@ export default function App() {
                 <div><p className="text-xs text-gray-500">Stops</p><p className="font-medium text-gray-800">{best.stops}</p></div>
               </div>
 
-              {disabilityMode && best.disabilityFeatures?.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-blue-200">
-                  <p className="text-xs text-gray-500 mb-2">Accessibility features</p>
-                  <div className="flex flex-wrap gap-2">
-                    {best.disabilityFeatures.map(f => (
-                      <span key={f} className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-md">{f}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <ConnectionInsight layovers={best.layovers} contacts={contacts} />
             </div>
           )}
 
           {/* Why this flight */}
           {best && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex gap-3 items-start">
-              <span className="text-xl">🤖</span>
-              <div>
-                <p className="text-gray-800 font-medium text-sm mb-0.5">Why this flight?</p>
-                <p className="text-blue-600 text-sm">{whyText(priority, best, disabilityMode)}</p>
-              </div>
-            </div>
+            <WhyThisFlight
+              best={best}
+              allFlights={results}
+              priority={priority}
+            />
           )}
 
           {/* Other options */}
@@ -448,12 +438,7 @@ export default function App() {
                   <div key={flight.id} className="bg-white rounded-xl shadow-sm border border-gray-200 px-5 py-4">
                     <div className="flex justify-between items-start">
                       <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-gray-900 text-sm">{flight.airline}</p>
-                          {disabilityMode && flight.disabilityFeatures?.length > 0 && (
-                            <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">♿</span>
-                          )}
-                        </div>
+                        <p className="font-semibold text-gray-900 text-sm">{flight.airline}</p>
                         <div className="flex gap-0 mt-0.5 text-gray-500 text-sm">
                           <span className="w-44 shrink-0">{flight.dep} → {flight.arr}</span>
                           <span className="w-16 shrink-0">{flight.duration}</span>
