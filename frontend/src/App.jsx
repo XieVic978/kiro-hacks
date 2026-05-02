@@ -269,7 +269,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [apiError, setApiError] = useState(null)
 
-  const canSearch = from.trim() && to.trim() && date && budget
+  const canSearch = from.trim() && to.trim() && date
 
   async function handleSearch() {
     if (!canSearch) return
@@ -315,18 +315,13 @@ export default function App() {
       {/* Search card + disability toggle */}
       <div className="max-w-3xl mx-auto mb-5 flex gap-3 items-start">
         <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="grid grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-3 gap-4 mb-4">
             <AirportInput label="From" placeholder="San Francisco" value={from} onChange={setFrom} />
             <AirportInput label="To"   placeholder="New York"      value={to}   onChange={setTo}   />
             <div>
               <label className="block text-sm text-gray-600 mb-1">Date</label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)}
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-600 mb-1">Max Budget</label>
-              <input type="number" placeholder="500" value={budget} onChange={e => setBudget(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
           <div className="flex gap-3">
