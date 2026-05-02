@@ -412,7 +412,7 @@ export default function App() {
           {others && others.length > 0 && (
             <div>
               <h2 className="text-gray-800 font-medium text-base mb-3">Other Options</h2>
-              <div className="space-y-2">
+              <div className="overflow-y-auto max-h-96 space-y-2 pr-1">
                 {others.map(flight => (
                   <div key={flight.id} className="bg-white rounded-xl shadow-sm border border-gray-200 px-5 py-4">
                     <div className="flex justify-between items-start">
