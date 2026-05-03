@@ -1,0 +1,43 @@
+# Implementation Tasks
+
+## Completed Tasks
+
+- [x] Set up Vite + React frontend with Tailwind CSS
+- [x] Set up Express + TypeScript backend
+- [x] Implement Figma design in React + Tailwind (search card, empty state, best match card, other options list)
+- [x] Priority selector (Cheapest / Fastest) with client-side re-sort
+- [x] "Why this flight?" card with static fallback text
+- [x] Clear button (clears results and all input fields)
+- [x] Implement airport autocomplete with local JSON data (IATA code, city, airport name dropdown)
+- [x] Keyboard navigation in autocomplete (arrows, Enter, Escape)
+- [x] Integrate SerpAPI for live Google Flights data
+- [x] Build flight result cards (airline, price, times, duration, stops)
+- [x] Highlight best match card with ⭐ badge
+- [x] Integrate Groq API for "Why this flight?" AI explanation
+- [x] Build "Never Waste a Connection" layover contact matching
+- [x] Three-tier airport matching (direct city → IATA lookup → word extraction)
+- [x] 90-minute minimum layover threshold for meetup suggestions
+- [x] React Router multi-page setup
+- [x] NavBar with Flights / Connections tabs
+- [x] SearchContext (persists search across page navigation)
+- [x] ContactsContext (shared contacts state)
+- [x] Connections page with contact cards (name, role, company, city)
+- [x] Add contact form with airport autocomplete for city field
+- [x] Edit contact (inline edit mode, hover to reveal ✏️)
+- [x] Remove contact
+- [x] City filter dropdown on Connections page
+- [x] Search bar on Connections page (name, city, company)
+- [x] Alphabetical sort by first name
+- [x] Scrollable contact list box
+- [x] App renamed to ConnectFlight (browser tab, NavBar, page heading)
+- [x] AirportInput extracted to shared component (`components/AirportInput.jsx`)
+- [x] Space key fix in AirportInput inside forms (converted `<form>` to `<div>`)
+- [x] `includes` matching instead of `startsWith` for better airport search
+- [x] Expand airport dataset from US-only to 130+ worldwide airports
+- [x] Remove max budget filter from search form
+- [x] Add "View on Google Flights" button with `booking_token` deep-link
+- [x] Fix malformed SBP airport entry (wrong field name `id` → `code`)
+- [x] Remove unused variables (`params`, `buildGoogleFlightsSearchUrl`)
+- [x] Updated SerpAPI key in `backend/.env.local`
+- [x] README updated with full project description and Kiro usage writeup
+- [x] All `.kiro` files completed for hackathon submission
