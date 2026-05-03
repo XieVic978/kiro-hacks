@@ -330,7 +330,7 @@ app.get('/api/airports', (req: Request, res: Response) => {
 
 // Flight search — hits SerpAPI Google Flights
 app.get('/api/flights', async (req: Request, res: Response) => {
-  const { from, to, date } = req.query as Record<string, string>
+  const { from, to, date, returnDate, type } = req.query as Record<string, string>
 
   if (!from || !to || !date) {
     res.status(400).json({ error: 'Missing required params: from, to, date' })
@@ -342,6 +342,7 @@ app.get('/api/flights', async (req: Request, res: Response) => {
     return
   }
 
+  const isRoundTrip = type === '1' && returnDate
   const params = new URLSearchParams({
     engine:         'google_flights',
     departure_id:   from,
@@ -349,9 +350,10 @@ app.get('/api/flights', async (req: Request, res: Response) => {
     outbound_date:  date,
     currency:       'USD',
     hl:             'en',
-    type:           '2',   // one-way
+    type:           isRoundTrip ? '1' : '2',
     api_key:        SERPAPI_KEY ?? '',
   })
+  if (isRoundTrip) params.set('return_date', returnDate)
 
   try {
     const data = await fetchSerpApiJson(params)

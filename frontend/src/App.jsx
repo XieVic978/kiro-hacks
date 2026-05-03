@@ -331,6 +331,8 @@ export default function App() {
     from, setFrom,
     to, setTo,
     date, setDate,
+    returnDate, setReturnDate,
+    tripType, setTripType,
     priority, setPriority,
     results, setResults,
     clear: handleClear,
@@ -339,7 +341,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [apiError, setApiError] = useState(null)
 
-  const canSearch = from.trim() && to.trim() && date
+  const canSearch = from.trim() && to.trim() && date && (tripType === 'oneway' || returnDate)
 
   async function handleSearch() {
     if (!canSearch) return
@@ -350,7 +352,16 @@ export default function App() {
       const searchedFromCode = extractCode(from)
       const searchedToCode   = extractCode(to)
       const searchedDate     = date
-      const res  = await fetch(`${API}/api/flights?from=${searchedFromCode}&to=${searchedToCode}&date=${searchedDate}`)
+      const params = new URLSearchParams({
+        from: searchedFromCode,
+        to:   searchedToCode,
+        date: searchedDate,
+      })
+      if (tripType === 'roundtrip' && returnDate) {
+        params.set('returnDate', returnDate)
+        params.set('type', '1')
+      }
+      const res  = await fetch(`${API}/api/flights?${params}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'API error')
       const uiFlights = data.flights.map((flight, index) =>
@@ -379,14 +390,44 @@ export default function App() {
 
       {/* Search card */}
       <div className="max-w-3xl mx-auto mb-5 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        {/* Trip type toggle */}
+        <div className="flex gap-2 mb-4">
+          <button
+            type="button"
+            onClick={() => { setTripType('oneway'); setReturnDate('') }}
+            className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+              tripType === 'oneway' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            One-way
+          </button>
+          <button
+            type="button"
+            onClick={() => setTripType('roundtrip')}
+            className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+              tripType === 'roundtrip' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Round trip
+          </button>
+        </div>
+
+        <div className={`grid gap-4 mb-4 ${tripType === 'roundtrip' ? 'grid-cols-2' : 'grid-cols-3'}`}>
           <AirportInput label="From" placeholder="San Francisco" value={from} onChange={setFrom} />
           <AirportInput label="To"   placeholder="New York"      value={to}   onChange={setTo}   />
           <div>
-            <label className="block text-sm text-gray-600 mb-1">Date</label>
+            <label className="block text-sm text-gray-600 mb-1">Departure</label>
             <input type="date" value={date} onChange={e => setDate(e.target.value)}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
+          {tripType === 'roundtrip' && (
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Return</label>
+              <input type="date" value={returnDate} onChange={e => setReturnDate(e.target.value)}
+                min={date || undefined}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          )}
         </div>
         <div className="flex gap-3">
           <button onClick={handleSearch} disabled={!canSearch || loading}
