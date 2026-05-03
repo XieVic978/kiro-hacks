@@ -3,6 +3,10 @@ import './App.css'
 import { useContacts } from './store/ContactsContext'
 import { useSearch } from './store/SearchContext'
 import AirportInput from './components/AirportInput'
+import AIRPORTS from './data/airports.json'
+
+// Build a quick IATA → city lookup
+const IATA_TO_CITY = Object.fromEntries(AIRPORTS.map(a => [a.code, a.city.toLowerCase()]))
 
 // ── Never Waste a Connection ──────────────────────────────────────────────────
 
@@ -19,7 +23,23 @@ function getMatchingContacts(layovers, contacts) {
   for (const layover of layovers) {
     if (layover.layoverMinutes < MIN_MEETUP_MINUTES) continue
     const haystack = `${layover.city} ${layover.airport}`.toLowerCase()
-    const cityContacts = contacts.filter(c => haystack.includes(c.city.toLowerCase()))
+    // Also resolve the IATA code to a known city name
+    const iataCity = layover.iata ? (IATA_TO_CITY[layover.iata] ?? '') : ''
+    const cityContacts = contacts.filter(c => {
+      const contactCity = c.city.toLowerCase()
+      // Direct substring match
+      if (haystack.includes(contactCity)) return true
+      // IATA → city lookup match
+      if (iataCity && iataCity.includes(contactCity)) return true
+      if (iataCity && contactCity.includes(iataCity)) return true
+      // Match significant words from airport name against contact city
+      const airportWords = layover.airport.toLowerCase()
+        .replace(/\(.*?\)/g, '')
+        .replace(/\b(international|airport|domestic|terminal|national|regional)\b/g, '')
+        .split(/\s+/)
+        .filter(w => w.length > 3)
+      return airportWords.some(w => contactCity.includes(w))
+    })
     if (cityContacts.length > 0) matches.push({ layover, contacts: cityContacts })
   }
   return matches
@@ -99,6 +119,7 @@ function normalizeLayovers(rawLayovers = []) {
   return rawLayovers.map(l => ({
     city:           l.name ?? '',
     airport:        l.name ? `${l.name} (${l.id ?? ''})` : (l.id ?? ''),
+    iata:           l.id ?? '',
     layoverMinutes: l.duration ?? 0,
   }))
 }
