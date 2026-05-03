@@ -45,14 +45,71 @@ function getMatchingContacts(layovers, contacts) {
   return matches
 }
 
+function buildLayoverKey(layover) {
+  return `${layover.iata || layover.city}-${layover.airport}-${layover.layoverMinutes}`
+}
+
 function ConnectionInsight({ layovers, contacts }) {
+  const [meetupSuggestions, setMeetupSuggestions] = useState({})
+  const [loadingLayovers, setLoadingLayovers] = useState({})
+  const [meetupErrors, setMeetupErrors] = useState({})
+  const [meetupMessages, setMeetupMessages] = useState({})
+
   if (!layovers || layovers.length === 0) return null
   const meetupMatches = getMatchingContacts(layovers, contacts)
+
+  async function handleSuggestMeetup(layover) {
+    const layoverKey = buildLayoverKey(layover)
+    const match = meetupMatches.find(item => item.layover.city === layover.city)
+    const contact = match?.contacts?.[0]
+
+    if (!contact) return
+
+    setLoadingLayovers(prev => ({ ...prev, [layoverKey]: true }))
+    setMeetupErrors(prev => ({ ...prev, [layoverKey]: null }))
+
+    try {
+      const res = await fetch(`${API}/api/layover-meetups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contactName: contact.name,
+          city: layover.city,
+          airport: layover.airport,
+          iata: layover.iata,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to load meetup suggestions')
+
+      setMeetupSuggestions(prev => ({
+        ...prev,
+        [layoverKey]: data.suggestions ?? [],
+      }))
+      setMeetupMessages(prev => ({
+        ...prev,
+        [layoverKey]: data.message ?? '',
+      }))
+    } catch (err) {
+      setMeetupErrors(prev => ({
+        ...prev,
+        [layoverKey]: err.message,
+      }))
+    } finally {
+      setLoadingLayovers(prev => ({ ...prev, [layoverKey]: false }))
+    }
+  }
 
   return (
     <div className="mt-4 pt-4 border-t border-blue-200 space-y-2">
       {layovers.map((layover, i) => {
         const match = meetupMatches.find(m => m.layover.city === layover.city)
+        const layoverKey = buildLayoverKey(layover)
+        const suggestions = meetupSuggestions[layoverKey] ?? []
+        const isLoading = loadingLayovers[layoverKey]
+        const error = meetupErrors[layoverKey]
+        const meetupMessage = meetupMessages[layoverKey]
+        const primaryContact = match?.contacts?.[0]
         return (
           <div key={i} className="rounded-lg border border-blue-100 bg-white px-3 py-2.5">
             <div className="flex items-center justify-between mb-1">
@@ -64,17 +121,42 @@ function ConnectionInsight({ layovers, contacts }) {
             {match ? (
               <div className="mt-2 bg-green-50 border border-green-200 rounded-md px-3 py-2">
                 <p className="text-xs font-semibold text-green-700 mb-1.5">
-                  🤝 Never Waste a Connection — you have {match.contacts.length === 1 ? 'a contact' : 'contacts'} here!
+                  🤝 Never Waste a Connection — you have a contact here!
                 </p>
-                {match.contacts.map(c => (
-                  <div key={c.id} className="flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-medium text-gray-800">{c.name}</span>
-                      <span className="text-xs text-gray-500"> · {c.role} at {c.company}</span>
-                    </div>
-                    <span className="text-xs text-green-600 font-medium">Suggest meetup →</span>
+                <div className="space-y-1.5">
+                  <div>
+                    <span className="text-xs font-medium text-gray-800">{primaryContact.name}</span>
+                    <span className="text-xs text-gray-500"> · {primaryContact.role} at {primaryContact.company}</span>
                   </div>
-                ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSuggestMeetup(layover)}
+                  disabled={isLoading}
+                  className={`mt-3 inline-flex items-center rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+                    isLoading
+                      ? 'cursor-not-allowed bg-green-100 text-green-400'
+                      : 'cursor-pointer bg-white text-green-700 border border-green-300 hover:bg-green-100'
+                  }`}
+                >
+                  {isLoading ? 'Finding nearby spots…' : 'Suggest meetup →'}
+                </button>
+                {error && (
+                  <p className="mt-2 text-xs text-red-600">⚠️ {error}</p>
+                )}
+                {meetupMessage && (
+                  <p className="mt-3 text-xs text-gray-700">{meetupMessage}</p>
+                )}
+                {suggestions.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {suggestions.map((suggestion, index) => (
+                      <div key={`${suggestion.name}-${index}`} className="rounded-md border border-green-200 bg-white px-3 py-2">
+                        <p className="text-xs font-semibold text-gray-800">{suggestion.name}</p>
+                        <p className="text-xs text-gray-600">{suggestion.address}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-green-600 mt-1.5">
                   You have {formatLayover(layover.layoverMinutes)} — enough time for a quick coffee meeting.
                 </p>

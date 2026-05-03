@@ -24,6 +24,17 @@ interface Airport {
   state: string
 }
 
+interface MeetupSuggestion {
+  name: string
+  address: string
+}
+
+interface GoogleMapsResult {
+  title?: string
+  address?: string
+  type?: string
+}
+
 interface Leg {
   airline?: string
   airline_logo?: string
@@ -94,6 +105,117 @@ async function fetchSerpApiJson(params: URLSearchParams) {
   }
 
   return data
+}
+
+async function fetchGroqJson<T>(systemPrompt: string, userPrompt: string): Promise<T> {
+  if (!GROQ_KEY) {
+    throw new Error('Missing GROQ_API_KEY environment variable')
+  }
+
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${GROQ_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Groq API error ${response.status}: ${await response.text()}`)
+  }
+
+  const data = await response.json() as {
+    choices?: { message?: { content?: string } }[]
+  }
+  const content = data.choices?.[0]?.message?.content ?? ''
+
+  try {
+    return JSON.parse(content) as T
+  } catch {
+    const match = content.match(/```(?:json)?\s*([\s\S]*?)```/)
+    if (match) return JSON.parse(match[1]) as T
+    throw new Error(`Could not parse Groq response: ${content}`)
+  }
+}
+
+function isMeetupSuggestion(value: unknown): value is MeetupSuggestion {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  return (
+    typeof item.name === 'string' &&
+    typeof item.address === 'string'
+  )
+}
+
+function isOutsideAirport(address = '', airport = '') {
+  const text = `${address} ${airport}`.toLowerCase()
+  return !(
+    text.includes('terminal') ||
+    text.includes('concourse') ||
+    text.includes('gate ') ||
+    text.includes('inside ') ||
+    text.includes('airport terminal') ||
+    text.includes('airside')
+  )
+}
+
+async function findNearbyCoffeeShops(
+  airport: string,
+  city?: string,
+  iata?: string
+) {
+  const queries = [
+    `coffee shops near ${airport}${city ? `, ${city}` : ''}`,
+    `coffee near ${airport}${city ? `, ${city}` : ''}`,
+    `coffee shops near ${city ?? airport}`,
+    `coffee near ${iata ?? airport}`,
+  ]
+
+  let lastCandidates: MeetupSuggestion[] = []
+
+  for (const query of queries) {
+    const params = new URLSearchParams({
+      engine: 'google_maps',
+      type: 'search',
+      q: query,
+      hl: 'en',
+      api_key: SERPAPI_KEY ?? '',
+    })
+
+    const data = await fetchSerpApiJson(params)
+    const candidates = ((data.local_results ?? []) as GoogleMapsResult[])
+      .filter(result => {
+        const title = result.title?.trim()
+        const address = result.address?.trim()
+
+        return Boolean(title) &&
+          Boolean(address) &&
+          isOutsideAirport(address, airport)
+      })
+      .slice(0, 2)
+      .map(result => ({
+        name: result.title as string,
+        address: result.address as string,
+      }))
+
+    lastCandidates = candidates
+    if (candidates.length >= 2) {
+      return candidates
+    }
+  }
+
+  if (lastCandidates.length > 0) return lastCandidates
+
+  throw new Error('SerpAPI did not return off-airport coffee shops')
 }
 
 function extractLivePrice(bookingOptions: BookingOption[]) {
@@ -275,6 +397,63 @@ app.post('/api/recommend', async (req: Request, res: Response) => {
   try {
     const result = await recommendFlights(flights, prompt, GROQ_KEY)
     res.json(result)
+  } catch (err) {
+    res.status(502).json({ error: String(err) })
+  }
+})
+
+app.post('/api/layover-meetups', async (req: Request, res: Response) => {
+  const {
+    contactName,
+    city,
+    airport,
+    iata,
+  } = req.body as {
+    contactName?: string
+    city?: string
+    airport?: string
+    iata?: string
+  }
+
+  if (!contactName || !airport) {
+    res.status(400).json({ error: 'Missing required body fields: contactName, airport' })
+    return
+  }
+
+  if (!SERPAPI_KEY) {
+    res.status(500).json({ error: 'Missing SERPAPI_KEY environment variable' })
+    return
+  }
+
+  try {
+    const suggestions = await findNearbyCoffeeShops(airport, city, iata)
+
+    const systemPrompt = `You suggest quick meetup venues for airline layovers near airports.
+Return ONLY valid JSON in this exact shape:
+{
+  "message": "One short casual meetup suggestion"
+}
+Rules:
+- Keep the tone friendly, casual, and helpful.
+- Mention the contact's first name.
+- Mention the layover city.
+- Mention one or both coffee shop names.
+- Limit the message to 1-2 sentences.`
+
+    const userPrompt = `Contact name: ${contactName}
+Layover city: ${city ?? 'the layover city'}
+Coffee shop options: ${suggestions.map(suggestion => `${suggestion.name} (${suggestion.address})`).join(', ')}`
+
+    const result = await fetchGroqJson<{ message?: string }>(systemPrompt, userPrompt)
+
+    if (!result.message || typeof result.message !== 'string') {
+      throw new Error('Groq did not return a meetup message')
+    }
+
+    res.json({
+      message: result.message,
+      suggestions: suggestions.filter(isMeetupSuggestion),
+    })
   } catch (err) {
     res.status(502).json({ error: String(err) })
   }
