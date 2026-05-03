@@ -110,7 +110,7 @@ kiro-hacks/
 │       │   ├── ContactsContext.jsx
 │       │   └── SearchContext.jsx
 │       └── data/
-│           └── airports.json    # US airport data
+│           └── airports.json    # airport data
 ├── backend/
 │   └── src/
 │       ├── index.ts             # Express server
