@@ -10,10 +10,11 @@ const ContactsContext = createContext(null)
 
 export function ContactsProvider({ children }) {
   const [contacts, setContacts] = useState(DEMO_CONTACTS)
-  const addContact    = (c) => setContacts(prev => [...prev, { ...c, id: Date.now() }])
-  const removeContact = (id) => setContacts(prev => prev.filter(c => c.id !== id))
+  const addContact    = (c)       => setContacts(prev => [...prev, { ...c, id: Date.now() }])
+  const removeContact = (id)      => setContacts(prev => prev.filter(c => c.id !== id))
+  const updateContact = (id, updates) => setContacts(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c))
   return (
-    <ContactsContext.Provider value={{ contacts, addContact, removeContact }}>
+    <ContactsContext.Provider value={{ contacts, addContact, removeContact, updateContact }}>
       {children}
     </ContactsContext.Provider>
   )
