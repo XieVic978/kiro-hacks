@@ -77,9 +77,6 @@ function ConnectionInsight({ layovers, contacts }) {
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5051'
 
-function buildGoogleFlightsSearchUrl(fromCode, toCode, date) {
-  return `https://www.google.com/travel/flights?hl=en#flt=${fromCode}.${toCode}.${date};c:USD;e:1;sd:1;t:f`
-}
 
 function buildGoogleFlightsRedirectUrl(fromCode, toCode, date, bookingToken = null) {
   const params = new URLSearchParams({

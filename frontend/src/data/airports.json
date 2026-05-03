@@ -184,5 +184,7 @@
   { "code": "MBJ", "city": "Montego Bay", "name": "Sangster International Airport" },
   { "code": "KIN", "city": "Kingston", "name": "Norman Manley International Airport" },
   { "code": "NAS", "city": "Nassau", "name": "Lynden Pindling International Airport" },
-  { "code": "POS", "city": "Port of Spain", "name": "Piarco International Airport" }
+  { "code": "POS", "city": "Port of Spain", "name": "Piarco International Airport" },
+  { "code": "SBP", "city": "San Luis Obispo", "name": "SLO County Regional Airport" }
+
 ]

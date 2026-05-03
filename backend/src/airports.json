@@ -134,5 +134,7 @@
   { "id": "GDL", "city": "Guadalajara", "name": "Miguel Hidalgo y Costilla International Airport", "state": "MX" },
   { "id": "HAV", "city": "Havana", "name": "Jose Marti International Airport", "state": "CU" },
   { "id": "SJU", "city": "San Juan", "name": "Luis Munoz Marin International Airport", "state": "PR" },
-  { "id": "NAS", "city": "Nassau", "name": "Lynden Pindling International Airport", "state": "BS" }
+  { "id": "NAS", "city": "Nassau", "name": "Lynden Pindling International Airport", "state": "BS" },
+  { "id": "SBP", "city": "San Luis Obispo", "name": "SLO County Regional Airport", "state": "CA" }
+
 ]
