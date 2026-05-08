@@ -6,7 +6,7 @@ ConnectFlight is an AI-powered flight decision tool that helps business traveler
 
 ---
 ### Demo Video: https://www.youtube.com/watch?v=BRiF7p6AOhM 
---
+---
 
 ## What It Does
 
