@@ -5,6 +5,7 @@
 ConnectFlight is an AI-powered flight decision tool that helps business travelers find the best flight *and* make the most of every layover by surfacing business contacts in their stopover cities.
 
 ---
+Demo Video: https://www.youtube.com/watch?v=BRiF7p6AOhM 
 
 ## What It Does
 
